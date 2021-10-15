@@ -1,5 +1,42 @@
-// import the Three.js module:
+/* Spatial Computing in Responsive Environments
+Eyal Assaf - #218516211
+York U.
+October 14, 2021
 
+== Surround Space ==
+The aim of this code is to create a bubble-like space around the User, where
+independent agents or NPC's will exist. These agents will follow the User in 
+the VR environment.
+
+Upon interacting with another User, these agents will engage with the opposing 
+agents to transfer data or modify the VR environment in different ways.
+
+TECHNICAL DETAILS:
+At this stage, the User is represented by a rectangle, surrounded by a wireframe sphere (the Bubble).
+There is an Chase Camera that follows the User from behind. This was implemented in order to have a
+detached overview of the scene and the behaviors therein.
+
+Random sized spheres are placed on the Bubble using Surface Sampling, and they represent the agents.
+
+FUTURE:
+Allow autonomy and independent motion for the agents to move around the surface of the Bubble.
+Methods to explore:
+    - particles
+    - raycasting
+
+
+REFERENCES
+Car Control: https://sbcode.net/threejs/physics-car/
+GUI: https://codepen.io/programking/pen/MyOQpO
+Surface Sampling: https://tympanus.net/codrops/2021/08/31/surface-sampling-in-three-js/
+*/
+
+
+
+// SURROUND SPACE
+// returns: none
+
+// import the Three.js module:
 import * as THREE from "https://cdn.skypack.dev/three/build/three.module.js";
 import { OrbitControls } from "https://cdn.skypack.dev/three/examples/jsm/controls/OrbitControls.js";
 import Stats from "https://cdn.skypack.dev/three/examples/jsm/libs/stats.module";
@@ -9,13 +46,14 @@ import { MeshSurfaceSampler } from 'https://cdn.skypack.dev/three/examples/jsm/m
 
 
 console.clear();
-console.log("Surround Space - dev");
+console.log("Surround Space");
 
 /*////////////////////////////////////////*/
 
 // setup Scene
 const scene = new THREE.Scene()
 
+// set light params
 const light = new THREE.DirectionalLight()
 light.position.set(25, 50, 25)
 light.castShadow = true
@@ -29,6 +67,7 @@ light.shadow.camera.left = -100
 light.shadow.camera.right = 100
 scene.add(light)
 
+// ignore camerahelper for now. Too distracting
 const helper = new THREE.CameraHelper(light.shadow.camera)
 //scene.add(helper)
 
@@ -56,7 +95,7 @@ document.body.appendChild(renderer.domElement)
 
 
 
-//ground
+//ground plane
 const phongMaterial = new THREE.MeshPhongMaterial();
 const groundGeometry = new THREE.PlaneGeometry(100, 100)
 const groundMesh = new THREE.Mesh(groundGeometry, phongMaterial)
@@ -65,9 +104,10 @@ groundMesh.receiveShadow = true
 scene.add(groundMesh)
 
 
-//ground details
+// ground details
+// generate random half-spheres and place them on the ground
 
-const groundBumpsMat = new THREE.MeshPhongMaterial({color: "skyblue"}); // add "", side: THREE.DoubleSide" for double-sided material
+const groundBumpsMat = new THREE.MeshPhongMaterial({color: "skyblue"}); // add ", side: THREE.DoubleSide" for double-sided material
 for (let i = 0; i < 80; i++) {
     const bumps = new THREE.Mesh(
         new THREE.SphereBufferGeometry(1, 12,12,0,Math.PI), // half spheres
@@ -89,27 +129,28 @@ playerMesh.position.y = 1;
 playerMesh.castShadow = true;
 
 
-// parent chaseCam to Player
+// ! parent chaseCam to Player
 playerMesh.add(chaseCam);
 
-// Player Shield
-const shieldGeometry = new THREE.SphereBufferGeometry(2,16,16);
-const shieldMat = new THREE.MeshPhongMaterial({wireframe: true});
-const shieldMesh = new THREE.Mesh(shieldGeometry,shieldMat);
-shieldMesh.position.y = 1;
+// Player bubble
+const bubbleGeometry = new THREE.SphereBufferGeometry(2,16,16);
+const bubbleMat = new THREE.MeshPhongMaterial({wireframe: true});
+const bubbleMesh = new THREE.Mesh(bubbleGeometry,bubbleMat);
+bubbleMesh.position.y = 1;
 
-shieldMesh.castShadow = false;
-// parent shield to the Player
-playerMesh.add(shieldMesh);
+bubbleMesh.castShadow = false;
 
-// add Player + shield to scene
+// ! parent bubble to the Player
+playerMesh.add(bubbleMesh);
+
+// add Player + bubble to scene
 scene.add(playerMesh);
 
 
 // !-------------------------> SAMPLED MESHES
-// Generate spheres on shieldMesh using SurfaceSampler.js
+// Generate spheres on bubbleMesh using SurfaceSampler.js
 // Initialize sampler
-const sampler = new MeshSurfaceSampler(shieldMesh).build();
+const sampler = new MeshSurfaceSampler(bubbleMesh).build();
 
 // setup shapes for sampled meshes
 const sphereGeometry = new THREE.SphereBufferGeometry(0.1, 6, 6);
@@ -130,7 +171,7 @@ const tempObject = new THREE.Object3D();
 
 // loop sampled elements
 for (let i = 0; i < 50; i++) {
-    // sample random point on the surface of shieldMesh
+    // sample random point on the surface of bubbleMesh
     sampler.sample(tempPosition);
     // store point coordinates in tempObject
     tempObject.position.set(tempPosition.x, tempPosition.y, tempPosition.z);
@@ -141,8 +182,8 @@ for (let i = 0; i < 50; i++) {
     spheres.setMatrixAt(i, tempObject.matrix);
     }	
 
-// add spheres to shieldMesh
-shieldMesh.add(spheres);
+// add spheres to bubbleMesh
+bubbleMesh.add(spheres);
 // ! -------------------------> SAMPLED MESHES END
 
 
@@ -167,7 +208,7 @@ function onWindowResize() {
 const stats = Stats();
 document.body.appendChild(stats.dom);
 
-// GUI options
+// GUI options for velocity controls, forward velocity and right velocity. See Update() function below
 const vControls = new function(){
     this.FV = 0.0;
     this.RV = 0.0;
@@ -217,6 +258,7 @@ function animate() {
 function update(){
     
     // set motion params
+    // query time
     const clock = new THREE.Clock();
     let delta;
 
@@ -229,19 +271,20 @@ function update(){
     delta = Math.min(clock.getDelta(), 0.1);
 
     const chaseCamPos = new THREE.Vector3();
-    let thrusting = false;
+    // set forward thrusting variable to smooth acceleration of User object
+    let isThrusting = false;
 
     
     // set forward/back acceleration motion
     // TODO: numbers should be further tweaked, ideally with gui controls
-    thrusting = false;
+    isThrusting = false;
         if (keyMap[87] ) { // W
             if (forwardVelocity < 100.0) playerMesh.translateZ(forwardVelocity -= .1)
-            thrusting = true;
+            isThrusting = true;
         }
         if (keyMap[83] ) { //S
             if (forwardVelocity > -100.0) playerMesh.translateZ(forwardVelocity += .1)
-            thrusting = true;
+            isThrusting = true;
         }
 
         var rotation_matrix = new THREE.Matrix4().identity();
@@ -265,7 +308,7 @@ function update(){
             }
         }
         
-        if (!thrusting) {
+        if (!isThrusting) {
             //not going forward or backwards so gradually slow down
             if (forwardVelocity > 0) {
                 forwardVelocity -= 0.25;
@@ -290,13 +333,14 @@ function update(){
         
 }
 
+// Render
 function render() {
     renderer.render(scene, camera);
     
 }
 renderer.setAnimationLoop(render);
 
-
+// Keyboard listeners
 function keyDown(event){
   keyMap[event.keyCode] = true;
 
